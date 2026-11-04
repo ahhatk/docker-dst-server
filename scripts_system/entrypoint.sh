@@ -52,6 +52,9 @@ if [ "$1" == "dontstarve_dedicated_server_nullrenderer" ] || [ "$1" == "supervis
 
     # Update game
     # note that the update process modifies (resets) the mods folder so we symlink that later
+    # The appmanifest baked into the image during build goes stale and makes
+    # SteamCMD skip updates. Remove it every start so state is rebuilt.
+    rm -f /opt/dst_server/steamapps/appmanifest_343050.acf
     echo "Updating server..."
     steamcmd +runscript /opt/steamcmd_scripts/install_dst_server
 
