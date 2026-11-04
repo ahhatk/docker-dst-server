@@ -1,4 +1,4 @@
-ARG BASE_IMAGE=debian:buster-slim
+ARG BASE_IMAGE=debian:bookworm-slim
 FROM $BASE_IMAGE
 LABEL maintainer="James Swineson <docker@public.swineson.me>"
 
@@ -15,7 +15,10 @@ ARG DST_USER_DATA_PATH=/data
 # install packages
 RUN dpkg --add-architecture i386 \
     && apt-get update -y \
-    && apt-get install -y --no-install-recommends ca-certificates lib32stdc++6 libcurl3-gnutls:i386 libcurl3-gnutls wget tar supervisor \
+    && apt-get install -y --no-install-recommends ca-certificates lib32stdc++6 wget tar supervisor \
+    && (apt-get install -y --no-install-recommends libcurl3-gnutls libcurl3-gnutls:i386 || apt-get install -y --no-install-recommends libcurl3t64-gnutls libcurl3t64-gnutls:i386) \
+    && (test -e /usr/lib/x86_64-linux-gnu/libcurl-gnutls.so.4 || test -e /lib/x86_64-linux-gnu/libcurl-gnutls.so.4) \
+    && (test -e /usr/lib/i386-linux-gnu/libcurl-gnutls.so.4 || test -e /lib/i386-linux-gnu/libcurl-gnutls.so.4) \
     && (apt-get install -y --no-install-recommends lib32gcc-s1 || apt-get install -y --no-install-recommends lib32gcc1) \
     && apt-get autoremove -y \
     && apt-get clean -y \
