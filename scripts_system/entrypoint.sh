@@ -28,9 +28,9 @@ if [ "$1" == "dontstarve_dedicated_server_nullrenderer" ] || [ "$1" == "supervis
     fi
 
     # check cluster token file format
-    if [ ! -f "${FILE_CLUSTER_TOKEN}" ]; then
+    if [ ! -s "${FILE_CLUSTER_TOKEN}" ]; then
         >&2 echo "Please fill in \`DoNotStarveTogether/Cluster_1/cluster_token.txt\` with your cluster token and restart server!"
-        exit
+        exit 1
     else
         if [ -z "$(tail -c 1 "${FILE_CLUSTER_TOKEN}")" ]; then
             # the cluster_token.txt needs to be terminated without newline, try to fix
@@ -56,7 +56,20 @@ if [ "$1" == "dontstarve_dedicated_server_nullrenderer" ] || [ "$1" == "supervis
     # SteamCMD skip updates. Remove it every start so state is rebuilt.
     rm -f /opt/dst_server/steamapps/appmanifest_343050.acf
     echo "Updating server..."
-    steamcmd +runscript /opt/steamcmd_scripts/install_dst_server
+    update_server() {
+        local attempt status
+        for attempt in 1 2 3; do
+            if steamcmd +runscript /opt/steamcmd_scripts/install_dst_server; then
+                return 0
+            else
+                status=$?
+            fi
+            echo >&2 "Server update attempt ${attempt} failed (exit ${status})"
+            if [ "${attempt}" -lt 3 ]; then sleep 5; fi
+        done
+        return "${status}"
+    }
+    update_server
 
     # if there are no mods config, use the one that comes with the server
     if [ ! -d "${DIR_MODS_USER}" ]; then

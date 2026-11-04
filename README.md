@@ -14,7 +14,7 @@ This setup is local-only: the image is built from this checkout and is never pub
 
 Image freshness comes from two places:
 
-* `docker compose up -d --build` (or `docker build`) re-runs the build: system packages, SteamCMD, and the pre-installed game files are re-baked from the cached layers; the base image is reused unless the build runs with `--pull`.
+* `docker compose up -d --build` (or `docker build`) reuses cached layers, including system packages, SteamCMD, and pre-installed game files. Use `--pull --no-cache` for a fresh bake.
 * Every container start re-runs the entrypoint, which updates the DST server and mods in place via SteamCMD.
 
 A plain build reuses the layer cache, including the base image. Only `--pull` (preferably with `--no-cache`) refreshes the base layer (see [Build Docker image locally](#build-docker-image-locally)).
@@ -28,7 +28,7 @@ A plain build reuses the layer cache, including the base image. Only `--pull` (p
  * You need 4 UDP ports exposed to the public network. (See FAQ for details.)
  * CPU: 1 core is somewhat enough for a small-scale server (but don't try 60 ticks, start from 15 or 30).
  * Memory: We recommend reserving 1GiB Memory for the server, plus 60MiB per active user.
- * Disk size: the Docker image takes 1.5GiB, and you need at least another 5MiB for maps, configs and logs. 4GiB available disk space is recommended.
+ * Disk size: the local image is about 8.5 GB, plus space for maps, configs, logs, and updates. Allow at least 20 GB free; a fresh build temporarily needs several additional GB for downloading and baking the game layer.
 
 ### Start server
 
@@ -61,7 +61,7 @@ Note: the server may take up to ~6min to save the map and fully shut down. The s
  
 ## Server Configuration
 
-On the first start with an empty data directory, the entrypoint prints `Creating default server config...`, copies the default config, and creates an empty `Cluster_1/cluster_token.txt`. Startup continues, but the server cannot authenticate until you supply a real token. If the config directory already exists but `cluster_token.txt` has been removed, startup stops with:
+On the first start with an empty data directory, the entrypoint prints `Creating default server config...`, copies the default config, and creates an empty `Cluster_1/cluster_token.txt`. If the token is missing or empty, startup stops with:
 ```
 Please fill in `DoNotStarveTogether/Cluster_1/cluster_token.txt` with your cluster token and restart server!
 ```
@@ -87,9 +87,9 @@ After you finish this, re-run the start command (`docker compose up -d --force-r
 
 `dst-server:local` is only ever built here — it is never pulled from or pushed to a registry. The build does download the base image (`debian:bookworm-slim` by default), apt packages, and SteamCMD from their upstream sources.
 
+This fork/current checkout contains the fixes described here; the upstream repository does not necessarily contain them. From this checkout, build in place:
+
 ```shell
-git clone https://github.com/Jamesits/docker-dst-server.git docker-dst-server
-cd docker-dst-server
 docker build -t dst-server:local .
 ```
 
@@ -122,7 +122,7 @@ There are some arguments you can set via `--build-arg`:
 There are two independent updates:
 
 * **Restart the container** (`docker compose restart`, or `docker compose up -d --force-recreate` after changing env values): the entrypoint re-runs SteamCMD `app_update` and the mod update step on every start.
-* **Rebuild the image** (`docker compose up -d --build`): refreshes the baked base image, system packages, and pre-installed game files.
+* **Rebuild the image** (`docker compose up -d --build`): reuses cached layers. Run `docker compose build --pull --no-cache` for a fresh bake of the base image, system packages, and pre-installed game files.
 
 You do not need to delete `steamapps/appmanifest_343050.acf` by hand, and the image does not need a custom `command:` that removes it. The entrypoint deletes the stale appmanifest on every start so SteamCMD rebuilds its state.
 

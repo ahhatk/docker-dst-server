@@ -1,0 +1,11 @@
+.git
+.env
+.env.local
+.env.*
+.superpowers
+data
+volumes
+.klei
+DoNotStarveTogether/**
+cluster_token.txt
+__pycache__

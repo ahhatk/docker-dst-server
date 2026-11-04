@@ -50,7 +50,17 @@ RUN chmod +x /usr/local/bin/*
 # install Don't Starve Together server
 RUN mkdir -p /opt/dst_server \
     && chown -R "${DST_USER}:${DST_GROUP}" /opt/dst_server \
-    && ( test "${DST_DOWNLOAD}" = "1" && steamcmd +runscript /opt/steamcmd_scripts/install_dst_server_initial || echo "Skipping DST server download" ) \
+    && if [ "${DST_DOWNLOAD}" = "1" ]; then \
+        installed=0; \
+        for attempt in 1 2 3; do \
+            if steamcmd +runscript /opt/steamcmd_scripts/install_dst_server_initial; then installed=1; break; fi; \
+            echo "DST server download attempt ${attempt} failed" >&2; \
+            if [ "${attempt}" -lt 3 ]; then sleep 5; fi; \
+        done; \
+        if [ "${installed}" -ne 1 ] || ! test -d /opt/dst_server/bin64 || ! test -d /opt/dst_server/bin; then \
+            echo "ERROR: DST server download failed" >&2; exit 1; \
+        fi; \
+    else echo "Skipping DST server download"; fi \
     && rm -rf /root/Steam /root/.steam
 
 # install default config
