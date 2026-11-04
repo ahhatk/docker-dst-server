@@ -4,19 +4,18 @@ They write their server setup instructions like sh*t, so we made this Docker ima
 
 Please read the whole document before putting your hands on your server. 
 
-[![Build Status](https://dev.azure.com/nekomimiswitch/General/_apis/build/status/docker-dst-server?branchName=master)](https://dev.azure.com/nekomimiswitch/General/_build/latest?definitionId=80&branchName=master)
-
 ----------
 
 ## Versioning
 
-The DST server code changes a lot. We offer multiple variants (tags) on [Docker Hub](https://hub.docker.com/r/jamesits/dst-server/):
+This setup is local-only: the image is built from this checkout and is never published to Docker Hub or any other registry. The upstream tags (`latest`, `nightly`, `steamcmd-rebase`, and the `-slim` variants) therefore do not apply here — there is just one local tag, `dst-server:local`.
 
-* `latest` or `vanilla` are less frequently updated images, recommended for day-to-day use
-* `nightly` is a nightly built image, so it (hopefully) comes with the latest server code
-* `steamcmd-rebase` works the same way as `latest` but is based on [`cm2network/steamcmd:root`](https://hub.docker.com/r/cm2network/steamcmd)
+Image freshness comes from two places:
 
-All variants except `nightly` also have a `-slim` tagged version which does not come with DST server pre-installed; required files will be downloaded every time the container is launched. The `-slim` versions cannot be launched offline.
+* `docker compose up -d --build` (or `docker build`) reuses cached layers, including system packages, SteamCMD, and pre-installed game files. Use `--pull --no-cache` for a fresh bake.
+* Every container start re-runs the entrypoint, which updates the DST server and mods in place via SteamCMD.
+
+A plain build reuses the layer cache, including the base image. Only `--pull` (preferably with `--no-cache`) refreshes the base layer (see [Build Docker image locally](#build-docker-image-locally)).
 
 ## Running
 
@@ -27,35 +26,45 @@ All variants except `nightly` also have a `-slim` tagged version which does not 
  * You need 4 UDP ports exposed to the public network. (See FAQ for details.)
  * CPU: 1 core is somewhat enough for a small-scale server (but don't try 60 ticks, start from 15 or 30).
  * Memory: We recommend reserving 1GiB Memory for the server, plus 60MiB per active user.
- * Disk size: the Docker image takes 1.5GiB, and you need at least another 5MiB for maps, configs and logs. 4GiB available disk space is recommended.
+ * Disk size: the local image is about 8.5 GB, plus space for maps, configs, logs, and updates. Allow at least 20 GB free; a fresh build temporarily needs several additional GB for downloading and baking the game layer.
 
 ### Start server
 
-Let's assume you are saving your server config and status to `${HOME}/.klei/DoNotStarveTogether`. (This is the default location when it is running outside Docker, so we'll use this as an example. If you want to save it to other location, just mount that directory read-write to the /data folder of the container.)
-
-Start server:
+This repository is set up for a **local-only** build: the image is built from the `Dockerfile` in this checkout and is never pushed to a registry.
 
 ```shell
-docker run -v ${HOME}/.klei/DoNotStarveTogether:/data -p 10999-11000:10999-11000/udp -p 12346-12347:12346-12347/udp -e "DST_SERVER_ARCH=amd64" -it jamesits/dst-server:latest
+# clone this repository into a local directory of your choice
+git clone <repository-url> docker-dst-server
+cd docker-dst-server
+cp .env.local.example .env.local   # fill in DST_CLUSTER_TOKEN=<your cluster token>
+docker compose up -d --build
 ```
 
-If you use `docker-compose`, an [example config](https://github.com/Jamesits/docker-dst-server/blob/master/docker-compose.yml) is provided.
+The sample [`docker-compose.yml`](docker-compose.yml) builds and runs `dst-server:local` with:
+
+* UDP ports `10999-11000` (master and caves) and `12346-12347` (Steam) published unchanged;
+* `DST_SERVER_ARCH=amd64`, so the 64-bit server binary is used;
+* `env_file: .env.local`, which supplies `DST_CLUSTER_TOKEN`;
+* a host directory mounted at `/data`, which holds all server config, saves, and logs. The sample uses `~/.klei/DoNotStarveTogether`; adjust the `volumes:` entry if you want the data elsewhere.
+
+Follow the logs with `docker compose logs -f`. If you prefer a one-off container instead of Compose, the equivalent `docker run` needs `-v <data-dir>:/data -p 10999-11000:10999-11000/udp -p 12346-12347:12346-12347/udp -e DST_SERVER_ARCH=amd64 --env-file .env.local`.
 
 ### Stop server
 
-Just press `Ctrl+C` and wait a little while to let itself spin down. (If the server is saving data, don't press ^C twice to force kill the server.)
+For a foreground container, press `Ctrl+C` and wait for it to spin down. (If the server is saving data, don't press ^C twice to force kill the server.) For the background Compose setup above, use `docker compose stop`.
 
-To programmatically shut down the server, send a SIGINT to the `supervisord` process. 
+To programmatically shut down the server, send a SIGINT to the `supervisord` process.
 
-Note: the server may take up to ~5min to save map and fully shut down.
+Note: the server may take up to ~6min to save the map and fully shut down. The sample Compose file sets `stop_grace_period: 6m` to allow for this.
  
 ## Server Configuration
 
-If you don't already have a set of server config in your data directory, we will generate one for you. Start server once using the command above, and you will see:
+On the first start with an empty data directory, the entrypoint prints `Creating default server config...`, copies the default config, and creates an empty `Cluster_1/cluster_token.txt`. If the token is missing or empty, startup stops with:
 ```
-Creating default server config...
 Please fill in `DoNotStarveTogether/Cluster_1/cluster_token.txt` with your cluster token and restart server!
 ```
+
+Put your token in `.env.local` first (see [Start server](#start-server)); the entrypoint writes it into `DoNotStarveTogether/Cluster_1/cluster_token.txt` on every start.
 
 To generate a cluster token (as of 2019-11-02):
 
@@ -66,25 +75,33 @@ To generate a cluster token (as of 2019-11-02):
 5. Click "Don't Starve Toegther Servers" button on the top right
 6. Scroll down to "ADD NEW SERVER" section, fill in a server name (it is not important), and copy the generated token
 
-The token looks like `pds-g^aaaaaaaaa-q^jaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa=`. Then either set `DST_CLUSTER_TOKEN` environment variable during `docker run`, or paste the token into `your_data_directory/DoNotStarveTogether/Cluster_1/cluster_token.txt`.
+The token looks like `pds-g^aaaaaaaaa-q^jaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa=`. Put it in `.env.local` as `DST_CLUSTER_TOKEN=<token>` (a single line; the entrypoint normalizes any trailing newline), or paste it into `your_data_directory/DoNotStarveTogether/Cluster_1/cluster_token.txt`. Never commit `.env.local` — it is in `.gitignore`.
 
 If you need to add mods, change world generation config, etc., please do it now. Don't forget to edit `your_data_directory/DoNotStarveTogether/Cluster_1/cluster.ini` and get your server an unique name!
 
-After you finish this, re-run start server command, and the server should be running.
+After you finish this, re-run the start command (`docker compose up -d --force-recreate`), and the server should be running.
 
 ## Build Docker image locally
 
-(In most cases you don't need this; just pull the prebuilt image from Docker Hub.)
+`dst-server:local` is only ever built here — it is never pulled from or pushed to a registry. The build does download the base image (`debian:bookworm-slim` by default), apt packages, and SteamCMD from their upstream sources.
+
+This fork/current checkout contains the fixes described here; the upstream repository does not necessarily contain them. From this checkout, build in place:
 
 ```shell
-git clone https://github.com/Jamesits/docker-dst-server.git docker-dst-server
-cd docker-dst-server
-docker build . -t dst-server:latest
+docker build -t dst-server:local .
+```
+
+`BASE_IMAGE` defaults to `debian:bookworm-slim` (glibc 2.36, new enough for the current DST server binaries). Recent Debian or Ubuntu based images are supported; the Dockerfile's libcurl install tries `libcurl3-gnutls` (the package name on bookworm, buster, and bullseye) first and falls back to `libcurl3t64-gnutls` on newer Debian/Ubuntu releases, plus the 32-bit runtime libraries.
+
+A normal build reuses the layer cache, including a previously pulled base image. For a true clean bake that re-pulls the base and re-runs every step, use:
+
+```shell
+docker build --pull --no-cache -t dst-server:local .
 ```
 
 There are some arguments you can set via `--build-arg`:
 
-* `BASE_IMAGE`: the `FROM` image (recent Debian or Ubuntu based images are supported)
+* `BASE_IMAGE`: the `FROM` image (defaults to `debian:bookworm-slim`; recent Debian or Ubuntu based images are supported)
 * `STEAMCMD_PATH`: where is `steamcmd.sh` in the base image
 * `DST_DOWNLOAD`: set to `1` to embed DST server into the image
 * `DST_USER`: the user to run server as (inside container)
@@ -100,7 +117,12 @@ There are some arguments you can set via `--build-arg`:
 
 #### How to update server or mods?
 
-Restart the server. Updates will be downloaded automatically.
+There are two independent updates:
+
+* **Restart the container** (`docker compose restart`, or `docker compose up -d --force-recreate` after changing env values): the entrypoint re-runs SteamCMD `app_update` and the mod update step on every start.
+* **Rebuild the image** (`docker compose up -d --build`): reuses cached layers. Run `docker compose build --pull --no-cache` for a fresh bake of the base image, system packages, and pre-installed game files.
+
+You do not need to delete `steamapps/appmanifest_343050.acf` by hand, and the image does not need a custom `command:` that removes it. The entrypoint deletes the stale appmanifest on every start so SteamCMD rebuilds its state.
 
 #### How to connect to a LAN only server?
 

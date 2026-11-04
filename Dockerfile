@@ -1,4 +1,4 @@
-ARG BASE_IMAGE=debian:buster-slim
+ARG BASE_IMAGE=debian:bookworm-slim
 FROM $BASE_IMAGE
 LABEL maintainer="James Swineson <docker@public.swineson.me>"
 
@@ -15,7 +15,10 @@ ARG DST_USER_DATA_PATH=/data
 # install packages
 RUN dpkg --add-architecture i386 \
     && apt-get update -y \
-    && apt-get install -y --no-install-recommends ca-certificates lib32stdc++6 libcurl3-gnutls:i386 libcurl3-gnutls wget tar supervisor \
+    && apt-get install -y --no-install-recommends ca-certificates lib32stdc++6 wget tar supervisor \
+    && (apt-get install -y --no-install-recommends libcurl3-gnutls libcurl3-gnutls:i386 || apt-get install -y --no-install-recommends libcurl3t64-gnutls libcurl3t64-gnutls:i386) \
+    && (test -e /usr/lib/x86_64-linux-gnu/libcurl-gnutls.so.4 || test -e /lib/x86_64-linux-gnu/libcurl-gnutls.so.4) \
+    && (test -e /usr/lib/i386-linux-gnu/libcurl-gnutls.so.4 || test -e /lib/i386-linux-gnu/libcurl-gnutls.so.4) \
     && (apt-get install -y --no-install-recommends lib32gcc-s1 || apt-get install -y --no-install-recommends lib32gcc1) \
     && apt-get autoremove -y \
     && apt-get clean -y \
@@ -47,7 +50,17 @@ RUN chmod +x /usr/local/bin/*
 # install Don't Starve Together server
 RUN mkdir -p /opt/dst_server \
     && chown -R "${DST_USER}:${DST_GROUP}" /opt/dst_server \
-    && ( test "${DST_DOWNLOAD}" = "1" && steamcmd +runscript /opt/steamcmd_scripts/install_dst_server_initial || echo "Skipping DST server download" ) \
+    && if [ "${DST_DOWNLOAD}" = "1" ]; then \
+        installed=0; \
+        for attempt in 1 2 3; do \
+            if steamcmd +runscript /opt/steamcmd_scripts/install_dst_server_initial; then installed=1; break; fi; \
+            echo "DST server download attempt ${attempt} failed" >&2; \
+            if [ "${attempt}" -lt 3 ]; then sleep 5; fi; \
+        done; \
+        if [ "${installed}" -ne 1 ] || ! test -d /opt/dst_server/bin64 || ! test -d /opt/dst_server/bin; then \
+            echo "ERROR: DST server download failed" >&2; exit 1; \
+        fi; \
+    else echo "Skipping DST server download"; fi \
     && rm -rf /root/Steam /root/.steam
 
 # install default config
